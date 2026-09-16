@@ -1,0 +1,5 @@
+spring:
+  application:
+    name: syntaxmath-backend
+  profiles:
+    active: dev
