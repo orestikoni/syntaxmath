@@ -4,7 +4,7 @@ import { FileText, Menu, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-reac
 import { useEffect, useRef, useState } from "react";
 
 import { AuthDialog } from "@/features/auth/components/AuthDialog";
-import { ProblemInputCard } from "@/features/problem-solver/components/ProblemInputCard";
+import { ProblemInputCard } from "@/features/problem-solver/components/ProblemInputCard"; 
 import { ScopeGuideModal } from "@/features/problem-solver/components/ScopeGuideModal";
 import { OutputDocument } from "@/features/problem-solver/components/OutputDocument";
 import { ProgressGauge } from "@/features/problem-solver/components/ProgressGauge";
