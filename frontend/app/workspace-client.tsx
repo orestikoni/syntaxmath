@@ -4,12 +4,15 @@ import { FileText, Menu, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-reac
 import { useEffect, useRef, useState } from "react";
 
 import { AuthDialog } from "@/features/auth/components/AuthDialog";
-import { ProblemInputCard } from "@/features/problem-solver/components/ProblemInputCard"; 
+import { ProblemInputCard } from "@/features/problem-solver/components/ProblemInputCard";
 import { ScopeGuideModal } from "@/features/problem-solver/components/ScopeGuideModal";
+import { OutputDocument } from "@/features/problem-solver/components/OutputDocument";
 import { ProgressGauge } from "@/features/problem-solver/components/ProgressGauge";
+import { QuestionHeader } from "@/features/problem-solver/components/QuestionHeader";
 import { solveProblem } from "@/features/problem-solver/server/solveProblem";
 import type { ExplanationDepth, ScopeTemplate } from "@/features/problem-solver/types";
 import { ContextToggles } from "@/features/history/components/ContextToggles";
+import { ThreadHistoryList } from "@/features/history/components/ThreadHistoryList";
 import type { Thread } from "@/features/history/types";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -17,59 +20,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 const SAMPLE = "Compute $$\\int_{1}^{3} 3x^2 \\, dx$$";
-
-function OutputDocument({ solution }: { solution: unknown }) {
-  const content = typeof solution === "string" ? solution : JSON.stringify(solution, null, 2);
-
-  return (
-    <div className="prose prose-sm max-w-none text-foreground">
-      <pre className="whitespace-pre-wrap rounded-md bg-muted/50 p-4 font-sans text-sm">{content}</pre>
-    </div>
-  );
-}
-
-function QuestionHeader({ question, index }: { question: string; index: number }) {
-  return (
-    <header className="mb-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Question {index}</p>
-      <h2 className="mt-1 whitespace-pre-wrap text-base font-semibold text-foreground">{question}</h2>
-    </header>
-  );
-}
-
-function ThreadHistoryList({
-  threads,
-  activeId,
-  onSelect,
-}: {
-  threads: Thread[];
-  activeId: string | null;
-  onSelect: (id: string) => void;
-}) {
-  return (
-    <div className="space-y-1 px-2 pb-3">
-      {threads.length === 0 ? (
-        <p className="px-2 py-3 text-sm text-muted-foreground">No problems yet</p>
-      ) : (
-        threads.map((thread) => (
-          <button
-            key={thread.id}
-            type="button"
-            onClick={() => onSelect(thread.id)}
-            className={cn(
-              "w-full rounded-md px-2 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              thread.id === activeId
-                ? "bg-sidebar-accent text-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-            )}
-          >
-            <span className="block truncate">{thread.entries[0]?.question ?? "Untitled problem"}</span>
-          </button>
-        ))
-      )}
-    </div>
-  );
-}
 
 export function Workspace() {
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -88,7 +38,7 @@ export function Workspace() {
     const saved = window.localStorage.getItem("math-solver-context");
     if (!saved) return;
     try {
-      const parsed = JSON.parse(saved) as {  depth?: ExplanationDepth };
+      const parsed = JSON.parse(saved) as { depth?: ExplanationDepth };
       if (parsed.depth) setDepth(parsed.depth);
     } catch {
       /* ignore malformed state */
