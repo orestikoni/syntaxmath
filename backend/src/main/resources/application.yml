@@ -10,3 +10,6 @@ syntaxmath:
     cookie-secure: true
     session-lifetime: 7d
     allowed-origin: ${FRONTEND_ORIGIN}
+    login-rate-limit-ip-attempts: 30
+    login-rate-limit-account-attempts: 10
+    login-rate-limit-window: 15m

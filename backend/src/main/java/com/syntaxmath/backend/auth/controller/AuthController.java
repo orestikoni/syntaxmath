@@ -5,11 +5,14 @@ import com.syntaxmath.backend.auth.dto.LoginRequest;
 import com.syntaxmath.backend.auth.dto.MeResponse;
 import com.syntaxmath.backend.auth.dto.RegisterRequest;
 import com.syntaxmath.backend.auth.interfaces.UserRepository;
+import com.syntaxmath.backend.auth.service.LoginRateLimitService;
 import com.syntaxmath.backend.auth.service.SessionService;
 import com.syntaxmath.backend.auth.util.SessionCookieUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -19,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -29,21 +33,24 @@ public class AuthController {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final SessionService sessionService;
+    private final LoginRateLimitService loginRateLimitService;
     private final SessionCookieUtil sessionCookieUtil;
 
     public AuthController(UserRepository userRepository,
                            PasswordEncoder passwordEncoder,
                            SessionService sessionService,
+                           LoginRateLimitService loginRateLimitService,
                            SessionCookieUtil sessionCookieUtil) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.sessionService = sessionService;
+        this.loginRateLimitService = loginRateLimitService;
         this.sessionCookieUtil = sessionCookieUtil;
     }
 
     @PostMapping("/register")
     public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest request, HttpServletResponse response) {
-        String email = request.email().trim().toLowerCase();
+        String email = request.email().trim().toLowerCase(Locale.ROOT);
 
         if (userRepository.findByEmail(email).isPresent()) {
             return ResponseEntity.status(409).body(Map.of("message", "Email already in use"));
@@ -59,8 +66,20 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request, HttpServletResponse response) {
-        String email = request.email().trim().toLowerCase();
+    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request,
+                                   HttpServletRequest httpRequest,
+                                   HttpServletResponse response) {
+        String email = request.email().trim().toLowerCase(Locale.ROOT);
+        var retryAfter = loginRateLimitService.checkAndRecordAttempt(
+                httpRequest.getRemoteAddr(),
+                email
+        );
+        if (!retryAfter.isZero()) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .header(HttpHeaders.RETRY_AFTER, Long.toString(retryAfter.toSeconds()))
+                    .body(Map.of("message", "Too many login attempts. Try again later."));
+        }
+
         Optional<User> maybeUser = userRepository.findByEmail(email);
 
         boolean invalid = maybeUser.isEmpty()
