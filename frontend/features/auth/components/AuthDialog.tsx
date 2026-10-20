@@ -36,8 +36,11 @@ export function AuthDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [mode, setMode] = useState<Mode>("signin");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
 
   const signup = mode === "signup";
@@ -77,7 +80,9 @@ export function AuthDialog({
 
         <div className="flex items-center gap-3">
           <Separator className="flex-1" />
-          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">or</span>
+          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+            or
+          </span>
           <Separator className="flex-1" />
         </div>
 
@@ -85,6 +90,10 @@ export function AuthDialog({
           className="space-y-3"
           onSubmit={(e) => {
             e.preventDefault();
+            if (signup && password !== confirmPassword) {
+              pretend("Passwords do not match.");
+              return;
+            }
             pretend(
               signup
                 ? "Account creation is not connected in this preview."
@@ -92,6 +101,39 @@ export function AuthDialog({
             );
           }}
         >
+          {signup && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="auth-first-name" className="text-xs text-muted-foreground">
+                  Name
+                </Label>
+                <Input
+                  id="auth-first-name"
+                  type="text"
+                  required
+                  autoComplete="given-name"
+                  placeholder="Jane"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="auth-last-name" className="text-xs text-muted-foreground">
+                  Surname
+                </Label>
+                <Input
+                  id="auth-last-name"
+                  type="text"
+                  required
+                  autoComplete="family-name"
+                  placeholder="Doe"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <Label htmlFor="auth-email" className="text-xs text-muted-foreground">
               Email
@@ -121,6 +163,25 @@ export function AuthDialog({
               onChange={(e) => setPassword(e.target.value)}
             />
           </div>
+
+          {signup && (
+            <div className="space-y-1.5">
+              <Label htmlFor="auth-confirm-password" className="text-xs text-muted-foreground">
+                Verify password
+              </Label>
+              <Input
+                id="auth-confirm-password"
+                type="password"
+                required
+                minLength={6}
+                autoComplete="new-password"
+                placeholder="••••••••"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+            </div>
+          )}
+
           <Button type="submit" className="w-full gap-2">
             <Mail className="size-4" aria-hidden />
             {signup ? "Create account" : "Sign in with email"}
@@ -128,7 +189,7 @@ export function AuthDialog({
         </form>
 
         {notice && (
-          <p className="rounded-md border border-border bg-surface px-3 py-2 text-center text-xs text-muted-foreground">
+          <p className="rounded-md border border-border bg-muted px-3 py-2 text-center text-xs text-muted-foreground">
             {notice}
           </p>
         )}
