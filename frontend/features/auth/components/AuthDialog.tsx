@@ -156,7 +156,8 @@ export function AuthDialog({
               id="auth-password"
               type="password"
               required
-              minLength={6}
+              minLength={signup ? 12 : undefined}
+              maxLength={signup ? 128 : undefined}
               autoComplete={signup ? "new-password" : "current-password"}
               placeholder="••••••••"
               value={password}
@@ -173,7 +174,8 @@ export function AuthDialog({
                 id="auth-confirm-password"
                 type="password"
                 required
-                minLength={6}
+                minLength={12}
+                maxLength={128}
                 autoComplete="new-password"
                 placeholder="••••••••"
                 value={confirmPassword}
