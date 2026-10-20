@@ -1,8 +1,8 @@
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5433/syntaxmath
-    username: syntaxmath
-    password: syntaxmath
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
   data:
     redis:
       host: localhost
@@ -14,6 +14,13 @@ spring:
       chat:
         options:
           model: openai/gpt-oss-120b
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
 
 syntaxmath:
   auth:
