@@ -15,3 +15,9 @@ syntaxmath:
     login-rate-limit-window: 15m
     login-failure-lockout-threshold: 5
     login-failure-lockout-duration: 15m
+    email-verification-lifetime: 24h
+    password-reset-lifetime: 30m
+  email:
+    resend:
+      api-key: ${RESEND_API_KEY:}
+      from: ${RESEND_FROM_EMAIL:}

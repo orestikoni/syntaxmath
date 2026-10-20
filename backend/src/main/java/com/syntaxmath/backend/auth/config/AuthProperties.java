@@ -18,6 +18,8 @@ public class AuthProperties {
     private Duration loginRateLimitWindow = Duration.ofMinutes(15);
     private int loginFailureLockoutThreshold = 5;
     private Duration loginFailureLockoutDuration = Duration.ofMinutes(15);
+    private Duration emailVerificationLifetime = Duration.ofHours(24);
+    private Duration passwordResetLifetime = Duration.ofMinutes(30);
 
     public String getCookieName() {
         return cookieName;
@@ -89,5 +91,21 @@ public class AuthProperties {
 
     public void setLoginFailureLockoutDuration(Duration loginFailureLockoutDuration) {
         this.loginFailureLockoutDuration = loginFailureLockoutDuration;
+    }
+
+    public Duration getEmailVerificationLifetime() {
+        return emailVerificationLifetime;
+    }
+
+    public void setEmailVerificationLifetime(Duration emailVerificationLifetime) {
+        this.emailVerificationLifetime = emailVerificationLifetime;
+    }
+
+    public Duration getPasswordResetLifetime() {
+        return passwordResetLifetime;
+    }
+
+    public void setPasswordResetLifetime(Duration passwordResetLifetime) {
+        this.passwordResetLifetime = passwordResetLifetime;
     }
 }
