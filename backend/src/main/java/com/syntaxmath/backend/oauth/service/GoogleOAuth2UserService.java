@@ -10,6 +10,8 @@ import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.jspecify.annotations.NonNull;
 import org.springframework.stereotype.Service;
 
+import java.util.Locale;
+
 @Service
 public class GoogleOAuth2UserService implements OAuth2UserService<OidcUserRequest, OidcUser> {
 
@@ -33,7 +35,7 @@ public class GoogleOAuth2UserService implements OAuth2UserService<OidcUserReques
         if (rawEmail == null) {
             throw new OAuth2AuthenticationException("Google account did not return an email address");
         }
-        String email = rawEmail.trim().toLowerCase();
+        String email = rawEmail.trim().toLowerCase(Locale.ROOT);
 
         User user = userRepository.findByEmail(email)
                 .orElseGet(() -> userRepository.save(new User(
@@ -42,6 +44,10 @@ public class GoogleOAuth2UserService implements OAuth2UserService<OidcUserReques
                         oidcUser.getGivenName(),
                         oidcUser.getFamilyName()
                 )));
+        if (!user.isEmailVerified()) {
+            user.markEmailVerified();
+            user = userRepository.save(user);
+        }
 
         return new SyntaxMathOidcUser(oidcUser, user);
     }

@@ -27,6 +27,14 @@ public class AuthSecurityEventLogger {
         LOGGER.info("auth.login.succeeded account={} sourceIp={}", accountIdentifier(email), clientIp);
     }
 
+    public void emailVerified(String email) {
+        LOGGER.info("auth.email.verified account={}", accountIdentifier(email));
+    }
+
+    public void passwordReset(String email) {
+        LOGGER.info("auth.password.reset account={}", accountIdentifier(email));
+    }
+
     private String accountIdentifier(String email) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(

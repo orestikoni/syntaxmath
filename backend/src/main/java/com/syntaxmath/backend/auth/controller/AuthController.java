@@ -1,10 +1,14 @@
 package com.syntaxmath.backend.auth.controller;
 
 import com.syntaxmath.backend.auth.entity.User;
+import com.syntaxmath.backend.auth.dto.EmailRequest;
 import com.syntaxmath.backend.auth.dto.LoginRequest;
 import com.syntaxmath.backend.auth.dto.MeResponse;
+import com.syntaxmath.backend.auth.dto.PasswordResetRequest;
 import com.syntaxmath.backend.auth.dto.RegisterRequest;
+import com.syntaxmath.backend.auth.dto.TokenRequest;
 import com.syntaxmath.backend.auth.interfaces.UserRepository;
+import com.syntaxmath.backend.auth.service.AuthActionService;
 import com.syntaxmath.backend.auth.service.AuthSecurityEventLogger;
 import com.syntaxmath.backend.auth.service.LoginRateLimitService;
 import com.syntaxmath.backend.auth.service.SessionService;
@@ -33,6 +37,7 @@ import java.util.Optional;
 public class AuthController {
 
     private final UserRepository userRepository;
+    private final AuthActionService authActionService;
     private final PasswordEncoder passwordEncoder;
     private final SessionService sessionService;
     private final LoginRateLimitService loginRateLimitService;
@@ -40,12 +45,14 @@ public class AuthController {
     private final SessionCookieUtil sessionCookieUtil;
 
     public AuthController(UserRepository userRepository,
+                           AuthActionService authActionService,
                            PasswordEncoder passwordEncoder,
                            SessionService sessionService,
                            LoginRateLimitService loginRateLimitService,
                            AuthSecurityEventLogger securityEventLogger,
                            SessionCookieUtil sessionCookieUtil) {
         this.userRepository = userRepository;
+        this.authActionService = authActionService;
         this.passwordEncoder = passwordEncoder;
         this.sessionService = sessionService;
         this.loginRateLimitService = loginRateLimitService;
@@ -54,20 +61,61 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest request, HttpServletResponse response) {
+    public ResponseEntity<Map<String, String>> register(@Valid @RequestBody RegisterRequest request,
+                                                        HttpServletRequest httpRequest) {
         String email = request.email().trim().toLowerCase(Locale.ROOT);
-
-        if (userRepository.findByEmail(email).isPresent()) {
-            return ResponseEntity.status(409).body(Map.of("message", "Email already in use"));
+        Duration retryAfter = loginRateLimitService.checkAndRecordAttempt(
+                httpRequest.getRemoteAddr(),
+                email
+        );
+        if (!retryAfter.isZero()) {
+            return tooManyAttempts(retryAfter);
         }
+        authActionService.register(email, request.password(), request.firstName(), request.lastName());
+        return accepted("If the address can be registered, a verification email will be sent.");
+    }
 
-        User user = new User(email, passwordEncoder.encode(request.password()), request.firstName(), request.lastName());
-        user = userRepository.save(user);
+    @PostMapping("/verification/request")
+    public ResponseEntity<Map<String, String>> requestEmailVerification(
+            @Valid @RequestBody EmailRequest request,
+            HttpServletRequest httpRequest) {
+        Duration retryAfter = loginRateLimitService.checkAndRecordAttempt(
+                httpRequest.getRemoteAddr(),
+                request.email()
+        );
+        if (!retryAfter.isZero()) {
+            return tooManyAttempts(retryAfter);
+        }
+        authActionService.requestEmailVerification(request.email());
+        return accepted("If the address requires verification, an email will be sent.");
+    }
 
-        String rawToken = sessionService.createSession(user.getId());
-        sessionCookieUtil.setSessionCookie(response, rawToken);
+    @PostMapping("/verification/confirm")
+    public ResponseEntity<Map<String, String>> verifyEmail(@Valid @RequestBody TokenRequest request) {
+        authActionService.verifyEmail(request.token());
+        return ResponseEntity.ok(Map.of("message", "Email verified. You can now sign in."));
+    }
 
-        return ResponseEntity.ok(toMeResponse(user));
+    @PostMapping("/password-reset/request")
+    public ResponseEntity<Map<String, String>> requestPasswordReset(
+            @Valid @RequestBody EmailRequest request,
+            HttpServletRequest httpRequest) {
+        Duration retryAfter = loginRateLimitService.checkAndRecordAttempt(
+                httpRequest.getRemoteAddr(),
+                request.email()
+        );
+        if (!retryAfter.isZero()) {
+            return tooManyAttempts(retryAfter);
+        }
+        authActionService.requestPasswordReset(request.email());
+        return accepted("If the account is eligible, a password reset email will be sent.");
+    }
+
+    @PostMapping("/password-reset/confirm")
+    public ResponseEntity<Map<String, String>> resetPassword(
+            @Valid @RequestBody PasswordResetRequest request) {
+        authActionService.resetPassword(request.token(), request.password());
+        return ResponseEntity.ok(Map.of("message", "Password updated. Sign in with your new password."));
     }
 
     @PostMapping("/login")
@@ -106,6 +154,10 @@ public class AuthController {
         }
 
         User user = maybeUser.get();
+        if (!user.isEmailVerified()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("message", "Verify your email before signing in."));
+        }
         loginRateLimitService.clearFailedLogins(email);
         String rawToken = sessionService.createSession(user.getId());
         sessionCookieUtil.setSessionCookie(response, rawToken);
@@ -136,5 +188,9 @@ public class AuthController {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .header(HttpHeaders.RETRY_AFTER, Long.toString(retryAfter.toSeconds()))
                 .body(Map.of("message", "Too many login attempts. Try again later."));
+    }
+
+    private ResponseEntity<Map<String, String>> accepted(String message) {
+        return ResponseEntity.accepted().body(Map.of("message", message));
     }
 }
