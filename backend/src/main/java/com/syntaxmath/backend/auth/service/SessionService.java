@@ -14,6 +14,7 @@ import java.security.SecureRandom;
 import java.time.OffsetDateTime;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -65,6 +66,12 @@ public class SessionService {
             session.revoke();
             userSessionRepository.save(session);
         });
+    }
+
+    public void revokeAllSessions(UUID userId) {
+        List<UserSession> activeSessions = userSessionRepository.findAllByUserIdAndRevokedAtIsNull(userId);
+        activeSessions.forEach(UserSession::revoke);
+        userSessionRepository.saveAll(activeSessions);
     }
 
     private String hash(String rawToken) {

@@ -31,6 +31,9 @@ public class User {
     @Column(name = "last_name")
     private String lastName;
 
+    @Column(name = "email_verified", nullable = false)
+    private boolean emailVerified;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private OffsetDateTime createdAt;
 
@@ -63,6 +66,18 @@ public class User {
 
     public String getLastName() {
         return lastName;
+    }
+
+    public boolean isEmailVerified() {
+        return emailVerified;
+    }
+
+    public void markEmailVerified() {
+        this.emailVerified = true;
+    }
+
+    public void changePassword(String passwordHash) {
+        this.passwordHash = passwordHash;
     }
 
     public OffsetDateTime getCreatedAt() {
