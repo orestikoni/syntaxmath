@@ -5,6 +5,7 @@ import com.syntaxmath.backend.auth.dto.LoginRequest;
 import com.syntaxmath.backend.auth.dto.MeResponse;
 import com.syntaxmath.backend.auth.dto.RegisterRequest;
 import com.syntaxmath.backend.auth.interfaces.UserRepository;
+import com.syntaxmath.backend.auth.service.AuthSecurityEventLogger;
 import com.syntaxmath.backend.auth.service.LoginRateLimitService;
 import com.syntaxmath.backend.auth.service.SessionService;
 import com.syntaxmath.backend.auth.util.SessionCookieUtil;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Duration;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -34,17 +36,20 @@ public class AuthController {
     private final PasswordEncoder passwordEncoder;
     private final SessionService sessionService;
     private final LoginRateLimitService loginRateLimitService;
+    private final AuthSecurityEventLogger securityEventLogger;
     private final SessionCookieUtil sessionCookieUtil;
 
     public AuthController(UserRepository userRepository,
                            PasswordEncoder passwordEncoder,
                            SessionService sessionService,
                            LoginRateLimitService loginRateLimitService,
+                           AuthSecurityEventLogger securityEventLogger,
                            SessionCookieUtil sessionCookieUtil) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.sessionService = sessionService;
         this.loginRateLimitService = loginRateLimitService;
+        this.securityEventLogger = securityEventLogger;
         this.sessionCookieUtil = sessionCookieUtil;
     }
 
@@ -75,9 +80,13 @@ public class AuthController {
                 email
         );
         if (!retryAfter.isZero()) {
-            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                    .header(HttpHeaders.RETRY_AFTER, Long.toString(retryAfter.toSeconds()))
-                    .body(Map.of("message", "Too many login attempts. Try again later."));
+            return tooManyAttempts(retryAfter);
+        }
+
+        Duration accountLockout = loginRateLimitService.getAccountLockout(email);
+        if (!accountLockout.isZero()) {
+            securityEventLogger.accountLocked(email, httpRequest.getRemoteAddr());
+            return tooManyAttempts(accountLockout);
         }
 
         Optional<User> maybeUser = userRepository.findByEmail(email);
@@ -87,12 +96,20 @@ public class AuthController {
                 || !passwordEncoder.matches(request.password(), maybeUser.get().getPasswordHash());
 
         if (invalid) {
+            Duration lockout = loginRateLimitService.recordFailedLogin(email);
+            securityEventLogger.failedLogin(email, httpRequest.getRemoteAddr());
+            if (!lockout.isZero()) {
+                securityEventLogger.accountLocked(email, httpRequest.getRemoteAddr());
+                return tooManyAttempts(lockout);
+            }
             return ResponseEntity.status(401).body(Map.of("message", "Invalid email or password"));
         }
 
         User user = maybeUser.get();
+        loginRateLimitService.clearFailedLogins(email);
         String rawToken = sessionService.createSession(user.getId());
         sessionCookieUtil.setSessionCookie(response, rawToken);
+        securityEventLogger.successfulLogin(email, httpRequest.getRemoteAddr());
 
         return ResponseEntity.ok(toMeResponse(user));
     }
@@ -113,5 +130,11 @@ public class AuthController {
 
     private MeResponse toMeResponse(User user) {
         return new MeResponse(user.getId(), user.getEmail(), user.getFirstName(), user.getLastName());
+    }
+
+    private ResponseEntity<Map<String, String>> tooManyAttempts(Duration retryAfter) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(retryAfter.toSeconds()))
+                .body(Map.of("message", "Too many login attempts. Try again later."));
     }
 }

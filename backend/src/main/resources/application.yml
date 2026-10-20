@@ -13,3 +13,5 @@ syntaxmath:
     login-rate-limit-ip-attempts: 30
     login-rate-limit-account-attempts: 10
     login-rate-limit-window: 15m
+    login-failure-lockout-threshold: 5
+    login-failure-lockout-duration: 15m

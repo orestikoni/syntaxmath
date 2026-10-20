@@ -21,16 +21,12 @@ public class LoginRateLimitService {
 
     private static final DefaultRedisScript<Long> RATE_LIMIT_SCRIPT = new DefaultRedisScript<>("""
             local ip_count = redis.call('INCR', KEYS[1])
-            if ip_count == 1 then
-                redis.call('EXPIRE', KEYS[1], ARGV[1])
-            elseif redis.call('TTL', KEYS[1]) < 0 then
+            if ip_count == 1 or redis.call('TTL', KEYS[1]) < 0 then
                 redis.call('EXPIRE', KEYS[1], ARGV[1])
             end
 
             local account_count = redis.call('INCR', KEYS[2])
-            if account_count == 1 then
-                redis.call('EXPIRE', KEYS[2], ARGV[1])
-            elseif redis.call('TTL', KEYS[2]) < 0 then
+            if account_count == 1 or redis.call('TTL', KEYS[2]) < 0 then
                 redis.call('EXPIRE', KEYS[2], ARGV[1])
             end
 
@@ -47,6 +43,20 @@ public class LoginRateLimitService {
             if ip_count > tonumber(ARGV[2]) or account_count > tonumber(ARGV[3]) then
                 return 1
             end
+            return 0
+            """, Long.class);
+
+    private static final DefaultRedisScript<Long> FAILED_LOGIN_SCRIPT = new DefaultRedisScript<>("""
+            local failures = redis.call('INCR', KEYS[1])
+            if failures == 1 or redis.call('TTL', KEYS[1]) < 0 then
+                redis.call('EXPIRE', KEYS[1], ARGV[1])
+            end
+
+            if failures >= tonumber(ARGV[2]) then
+                redis.call('SET', KEYS[2], '1', 'EX', ARGV[3])
+                return tonumber(ARGV[3])
+            end
+
             return 0
             """, Long.class);
 
@@ -67,7 +77,7 @@ public class LoginRateLimitService {
             throw new IllegalStateException("Login rate limit settings must be positive");
         }
 
-        String normalizedEmail = email.trim().toLowerCase(Locale.ROOT);
+        String normalizedEmail = normalize(email);
         List<String> keys = List.of(
                 "auth:login:ip:" + hash(clientIp),
                 "auth:login:account:" + hash(normalizedEmail)
@@ -86,12 +96,75 @@ public class LoginRateLimitService {
             }
             return retryAfterSeconds > 0 ? Duration.ofSeconds(retryAfterSeconds) : Duration.ZERO;
         } catch (DataAccessException exception) {
-            throw new ResponseStatusException(
-                    HttpStatus.SERVICE_UNAVAILABLE,
-                    "Login is temporarily unavailable",
-                    exception
-            );
+            throw unavailable(exception);
         }
+    }
+
+    public Duration getAccountLockout(String email) {
+        try {
+            Long ttlSeconds = redisTemplate.getExpire(accountLockoutKey(email));
+            if (ttlSeconds == null) {
+                throw new IllegalStateException("Redis returned no account lockout expiry");
+            }
+            return ttlSeconds > 0 ? Duration.ofSeconds(ttlSeconds) : Duration.ZERO;
+        } catch (DataAccessException exception) {
+            throw unavailable(exception);
+        }
+    }
+
+    public Duration recordFailedLogin(String email) {
+        int failureWindowSeconds = Math.toIntExact(authProperties.getLoginRateLimitWindow().toSeconds());
+        int lockoutSeconds = Math.toIntExact(authProperties.getLoginFailureLockoutDuration().toSeconds());
+        int threshold = authProperties.getLoginFailureLockoutThreshold();
+        if (failureWindowSeconds <= 0 || lockoutSeconds <= 0 || threshold <= 0) {
+            throw new IllegalStateException("Login failure lockout settings must be positive");
+        }
+
+        try {
+            Long lockoutSecondsRemaining = redisTemplate.execute(
+                    FAILED_LOGIN_SCRIPT,
+                    List.of(failedLoginKey(email), accountLockoutKey(email)),
+                    Integer.toString(failureWindowSeconds),
+                    Integer.toString(threshold),
+                    Integer.toString(lockoutSeconds)
+            );
+            if (lockoutSecondsRemaining == null) {
+                throw new IllegalStateException("Redis returned no failed-login result");
+            }
+            return lockoutSecondsRemaining > 0
+                    ? Duration.ofSeconds(lockoutSecondsRemaining)
+                    : Duration.ZERO;
+        } catch (DataAccessException exception) {
+            throw unavailable(exception);
+        }
+    }
+
+    public void clearFailedLogins(String email) {
+        try {
+            redisTemplate.delete(failedLoginKey(email));
+        } catch (DataAccessException exception) {
+            throw unavailable(exception);
+        }
+    }
+
+    private String failedLoginKey(String email) {
+        return "auth:login:failures:" + hash(normalize(email));
+    }
+
+    private String accountLockoutKey(String email) {
+        return "auth:login:lockout:" + hash(normalize(email));
+    }
+
+    private String normalize(String email) {
+        return email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private ResponseStatusException unavailable(DataAccessException exception) {
+        return new ResponseStatusException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Login is temporarily unavailable",
+                exception
+        );
     }
 
     private String hash(String value) {

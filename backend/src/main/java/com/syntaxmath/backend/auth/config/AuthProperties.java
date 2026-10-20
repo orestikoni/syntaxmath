@@ -16,6 +16,8 @@ public class AuthProperties {
     private int loginRateLimitIpAttempts = 30;
     private int loginRateLimitAccountAttempts = 10;
     private Duration loginRateLimitWindow = Duration.ofMinutes(15);
+    private int loginFailureLockoutThreshold = 5;
+    private Duration loginFailureLockoutDuration = Duration.ofMinutes(15);
 
     public String getCookieName() {
         return cookieName;
@@ -71,5 +73,21 @@ public class AuthProperties {
 
     public void setLoginRateLimitWindow(Duration loginRateLimitWindow) {
         this.loginRateLimitWindow = loginRateLimitWindow;
+    }
+
+    public int getLoginFailureLockoutThreshold() {
+        return loginFailureLockoutThreshold;
+    }
+
+    public void setLoginFailureLockoutThreshold(int loginFailureLockoutThreshold) {
+        this.loginFailureLockoutThreshold = loginFailureLockoutThreshold;
+    }
+
+    public Duration getLoginFailureLockoutDuration() {
+        return loginFailureLockoutDuration;
+    }
+
+    public void setLoginFailureLockoutDuration(Duration loginFailureLockoutDuration) {
+        this.loginFailureLockoutDuration = loginFailureLockoutDuration;
     }
 }
