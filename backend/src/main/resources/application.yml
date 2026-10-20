@@ -3,3 +3,10 @@ spring:
     name: syntaxmath-backend
   profiles:
     active: dev
+
+syntaxmath:
+  auth:
+    cookie-name: syntaxmath_session
+    cookie-secure: true
+    session-lifetime: 7d
+    allowed-origin: ${FRONTEND_ORIGIN}

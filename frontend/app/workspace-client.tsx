@@ -10,7 +10,7 @@ import { OutputDocument } from "@/features/problem-solver/components/OutputDocum
 import { ProgressGauge } from "@/features/problem-solver/components/ProgressGauge";
 import { QuestionHeader } from "@/features/problem-solver/components/QuestionHeader";
 import { solveProblem } from "@/features/problem-solver/server/solveProblem";
-import type { AcademicLevel, ExplanationDepth, ScopeTemplate } from "@/features/problem-solver/types";
+import type { ExplanationDepth, ScopeTemplate } from "@/features/problem-solver/types";
 import { ContextToggles } from "@/features/history/components/ContextToggles";
 import { ThreadHistoryList } from "@/features/history/components/ThreadHistoryList";
 import type { Thread } from "@/features/history/types";
@@ -26,7 +26,6 @@ export function Workspace() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [stage, setStage] = useState(-1);
-  const [level, setLevel] = useState<AcademicLevel>("undergraduate");
   const [depth, setDepth] = useState<ExplanationDepth>("standard");
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -39,8 +38,7 @@ export function Workspace() {
     const saved = window.localStorage.getItem("math-solver-context");
     if (!saved) return;
     try {
-      const parsed = JSON.parse(saved) as { level?: AcademicLevel; depth?: ExplanationDepth };
-      if (parsed.level) setLevel(parsed.level);
+      const parsed = JSON.parse(saved) as { depth?: ExplanationDepth };
       if (parsed.depth) setDepth(parsed.depth);
     } catch {
       /* ignore malformed state */
@@ -48,8 +46,8 @@ export function Workspace() {
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem("math-solver-context", JSON.stringify({ level, depth }));
-  }, [level, depth]);
+    window.localStorage.setItem("math-solver-context", JSON.stringify({ depth }));
+  }, [depth]);
 
   const activeThread = threads.find((t) => t.id === activeId) ?? null;
   const busy = stage >= 0;
@@ -61,7 +59,7 @@ export function Workspace() {
     // TODO: once the backend streams real progress via SSE, drive `stage`
     // from that stream instead of just flipping it on/off around the call.
     setStage(0);
-    const response = await solveProblem({ question, level, depth });
+    const response = await solveProblem({ question, depth });
     setStage(-1);
 
     if (response.status === "UNSUPPORTED") {
