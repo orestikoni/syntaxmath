@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Mail } from "lucide-react";
 
+import { authApi, AUTH_API_URL } from "@/lib/auth-api";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 
-type Mode = "signin" | "signup";
+type Mode = "signin" | "signup" | "forgot";
 
 function GoogleMark() {
   return (
@@ -42,12 +43,11 @@ export function AuthDialog({
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [canResendVerification, setCanResendVerification] = useState(false);
 
   const signup = mode === "signup";
-
-  function pretend(message: string) {
-    setNotice(message);
-  }
+  const forgot = mode === "forgot";
 
   return (
     <Dialog
@@ -55,50 +55,98 @@ export function AuthDialog({
       onOpenChange={(next) => {
         onOpenChange(next);
         if (!next) setNotice(null);
+        if (!next) setCanResendVerification(false);
       }}
     >
       <DialogContent className="sm:max-w-sm">
         <DialogHeader className="items-center text-center">
           <DialogTitle className="text-lg">
-            {signup ? "Create your account" : "Sign in to Math Solver"}
+            {signup
+              ? "Create your account"
+              : forgot
+                ? "Reset your password"
+                : "Sign in to Math Solver"}
           </DialogTitle>
           <DialogDescription>
             {signup
               ? "Save your worked solutions and pick up where you left off."
-              : "Welcome back — your solution history is waiting."}
+              : forgot
+                ? "We’ll email a secure link if an eligible account exists."
+                : "Welcome back — your solution history is waiting."}
           </DialogDescription>
         </DialogHeader>
 
-        <Button
-          variant="outline"
-          className="w-full justify-center gap-2"
-          onClick={() => pretend("Google sign-in is not connected in this preview.")}
-        >
-          <GoogleMark />
-          Continue with Google
-        </Button>
+        {!forgot && (
+          <>
+            <Button
+              asChild
+              variant="outline"
+              className="w-full justify-center gap-2"
+            >
+              <a href={`${AUTH_API_URL}/oauth2/authorization/google`}>
+                <GoogleMark />
+                Continue with Google
+              </a>
+            </Button>
 
-        <div className="flex items-center gap-3">
-          <Separator className="flex-1" />
-          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
-            or
-          </span>
-          <Separator className="flex-1" />
-        </div>
+            <div className="flex items-center gap-3">
+              <Separator className="flex-1" />
+              <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                or
+              </span>
+              <Separator className="flex-1" />
+            </div>
+          </>
+        )}
 
         <form
           className="space-y-3"
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
             if (signup && password !== confirmPassword) {
-              pretend("Passwords do not match.");
+              setNotice("Passwords do not match.");
               return;
             }
-            pretend(
-              signup
-                ? "Account creation is not connected in this preview."
-                : "Email sign-in is not connected in this preview.",
-            );
+            setIsSubmitting(true);
+            setNotice(null);
+            setCanResendVerification(false);
+            try {
+              const path = signup
+                ? "/register"
+                : forgot
+                  ? "/password-reset/request"
+                  : "/login";
+              const body = signup
+                ? { email, password, firstName, lastName }
+                : forgot
+                  ? { email }
+                  : { email, password };
+              const result = await fetch(authApi(path), {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+              });
+              const payload = (await result.json()) as { message?: string };
+              if (!result.ok) {
+                setNotice(payload.message ?? "Unable to complete this request.");
+                setCanResendVerification(result.status === 403);
+                return;
+              }
+              if (signup) {
+                setNotice(payload.message ?? "Check your email for a verification link.");
+                setCanResendVerification(true);
+              } else if (forgot) {
+                setNotice(payload.message ?? "If the account is eligible, a reset email will be sent.");
+              } else {
+                onOpenChange(false);
+                window.location.reload();
+              }
+            } catch {
+              setNotice("Could not reach the authentication service. Please try again.");
+            } finally {
+              setIsSubmitting(false);
+            }
           }}
         >
           {signup && (
@@ -148,22 +196,24 @@ export function AuthDialog({
               onChange={(e) => setEmail(e.target.value)}
             />
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="auth-password" className="text-xs text-muted-foreground">
-              Password
-            </Label>
-            <Input
-              id="auth-password"
-              type="password"
-              required
-              minLength={signup ? 12 : undefined}
-              maxLength={signup ? 128 : undefined}
-              autoComplete={signup ? "new-password" : "current-password"}
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
+          {!forgot && (
+            <div className="space-y-1.5">
+              <Label htmlFor="auth-password" className="text-xs text-muted-foreground">
+                Password
+              </Label>
+              <Input
+                id="auth-password"
+                type="password"
+                required
+                minLength={signup ? 12 : undefined}
+                maxLength={signup ? 128 : undefined}
+                autoComplete={signup ? "new-password" : "current-password"}
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+          )}
 
           {signup && (
             <div className="space-y-1.5">
@@ -184,11 +234,57 @@ export function AuthDialog({
             </div>
           )}
 
-          <Button type="submit" className="w-full gap-2">
+          <Button type="submit" className="w-full gap-2" disabled={isSubmitting}>
             <Mail className="size-4" aria-hidden />
-            {signup ? "Create account" : "Sign in with email"}
+            {isSubmitting
+              ? "Please wait..."
+              : signup
+                ? "Create account"
+                : forgot
+                  ? "Send reset link"
+                  : "Sign in with email"}
           </Button>
         </form>
+
+        {!signup && !forgot && (
+          <button
+            type="button"
+            className="text-center text-xs text-primary underline-offset-2 hover:underline"
+            onClick={() => {
+              setMode("forgot");
+              setNotice(null);
+            }}
+          >
+            Forgot password?
+          </button>
+        )}
+
+        {canResendVerification && (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={isSubmitting}
+            onClick={async () => {
+              setIsSubmitting(true);
+              try {
+                const result = await fetch(authApi("/verification/request"), {
+                  method: "POST",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ email }),
+                });
+                const payload = (await result.json()) as { message?: string };
+                setNotice(payload.message ?? "If the address requires verification, an email will be sent.");
+              } catch {
+                setNotice("Could not reach the authentication service. Please try again.");
+              } finally {
+                setIsSubmitting(false);
+              }
+            }}
+          >
+            Resend verification email
+          </Button>
+        )}
 
         {notice && (
           <p className="rounded-md border border-border bg-muted px-3 py-2 text-center text-xs text-muted-foreground">
@@ -197,16 +293,21 @@ export function AuthDialog({
         )}
 
         <p className="text-center text-xs text-muted-foreground">
-          {signup ? "Already have an account?" : "Don't have an account?"}{" "}
+          {signup
+            ? "Already have an account?"
+            : forgot
+              ? "Remember your password?"
+              : "Don't have an account?"}{" "}
           <button
             type="button"
             className="font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => {
-              setMode(signup ? "signin" : "signup");
+              setMode(signup || forgot ? "signin" : "signup");
               setNotice(null);
+              setCanResendVerification(false);
             }}
           >
-            {signup ? "Sign in" : "Sign up"}
+            {signup || forgot ? "Sign in" : "Sign up"}
           </button>
         </p>
       </DialogContent>
