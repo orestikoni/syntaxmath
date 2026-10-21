@@ -2,7 +2,7 @@ spring:
   application:
     name: syntaxmath-backend
   profiles:
-    active: dev
+    default: dev
 
 syntaxmath:
   auth:
