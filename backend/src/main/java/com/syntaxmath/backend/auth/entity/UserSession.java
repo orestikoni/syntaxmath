@@ -56,6 +56,10 @@ public class UserSession {
         return tokenHash;
     }
 
+    public OffsetDateTime getCreatedAt() {
+        return createdAt;
+    }
+
     public OffsetDateTime getExpiresAt() {
         return expiresAt;
     }

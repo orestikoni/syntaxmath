@@ -35,6 +35,11 @@ public class AuthSecurityEventLogger {
         LOGGER.info("auth.password.reset account={}", accountIdentifier(email));
     }
 
+    public void sessionsRevoked(String email, int count, String scope) {
+        LOGGER.info("auth.sessions.revoked account={} count={} scope={}",
+                accountIdentifier(email), count, scope);
+    }
+
     private String accountIdentifier(String email) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(

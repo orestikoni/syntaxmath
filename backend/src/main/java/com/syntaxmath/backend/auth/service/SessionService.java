@@ -1,6 +1,7 @@
 package com.syntaxmath.backend.auth.service;
 
 import com.syntaxmath.backend.auth.config.AuthProperties;
+import com.syntaxmath.backend.auth.dto.SessionResponse;
 import com.syntaxmath.backend.auth.entity.User;
 import com.syntaxmath.backend.auth.entity.UserSession;
 import com.syntaxmath.backend.auth.interfaces.UserRepository;
@@ -68,10 +69,54 @@ public class SessionService {
         });
     }
 
-    public void revokeAllSessions(UUID userId) {
+    public int revokeAllSessions(UUID userId) {
         List<UserSession> activeSessions = userSessionRepository.findAllByUserIdAndRevokedAtIsNull(userId);
         activeSessions.forEach(UserSession::revoke);
         userSessionRepository.saveAll(activeSessions);
+        return activeSessions.size();
+    }
+
+    public List<SessionResponse> listActiveSessions(UUID userId, String currentRawToken) {
+        String currentTokenHash = currentRawToken == null || currentRawToken.isBlank()
+                ? null
+                : hash(currentRawToken);
+        return userSessionRepository
+                .findAllByUserIdAndRevokedAtIsNullAndExpiresAtAfterOrderByCreatedAtDesc(
+                        userId,
+                        OffsetDateTime.now()
+                )
+                .stream()
+                .map(session -> new SessionResponse(
+                        session.getId(),
+                        session.getCreatedAt(),
+                        session.getExpiresAt(),
+                        currentTokenHash != null && currentTokenHash.equals(session.getTokenHash())
+                ))
+                .toList();
+    }
+
+    public Optional<UUID> findSessionIdForToken(UUID userId, String rawToken) {
+        if (rawToken == null || rawToken.isBlank()) {
+            return Optional.empty();
+        }
+        return userSessionRepository.findByTokenHash(hash(rawToken))
+                .filter(session -> session.getUserId().equals(userId) && session.isActive())
+                .map(UserSession::getId);
+    }
+
+    public boolean revokeSession(UUID userId, UUID sessionId) {
+        return userSessionRepository.findByIdAndUserId(sessionId, userId)
+                .filter(UserSession::isActive)
+                .map(session -> {
+                    session.revoke();
+                    userSessionRepository.save(session);
+                    return true;
+                })
+                .orElse(false);
+    }
+
+    public int cleanupInactiveSessions() {
+        return userSessionRepository.deleteInactiveSessions(OffsetDateTime.now());
     }
 
     private String hash(String rawToken) {

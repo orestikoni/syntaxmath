@@ -6,6 +6,7 @@ import com.syntaxmath.backend.auth.dto.LoginRequest;
 import com.syntaxmath.backend.auth.dto.MeResponse;
 import com.syntaxmath.backend.auth.dto.PasswordResetRequest;
 import com.syntaxmath.backend.auth.dto.RegisterRequest;
+import com.syntaxmath.backend.auth.dto.SessionResponse;
 import com.syntaxmath.backend.auth.dto.TokenRequest;
 import com.syntaxmath.backend.auth.interfaces.UserRepository;
 import com.syntaxmath.backend.auth.service.AuthActionService;
@@ -21,16 +22,20 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -171,6 +176,49 @@ public class AuthController {
         String token = sessionCookieUtil.extractToken(request);
         sessionService.revokeSession(token);
         sessionCookieUtil.clearSessionCookie(response);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/sessions")
+    public ResponseEntity<List<SessionResponse>> sessions(
+            Authentication authentication,
+            HttpServletRequest request) {
+        User user = (User) authentication.getPrincipal();
+        return ResponseEntity.ok(sessionService.listActiveSessions(
+                user.getId(),
+                sessionCookieUtil.extractToken(request)
+        ));
+    }
+
+    @DeleteMapping("/sessions/{sessionId}")
+    public ResponseEntity<Void> revokeSession(
+            @PathVariable UUID sessionId,
+            Authentication authentication,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        User user = (User) authentication.getPrincipal();
+        UUID currentSessionId = sessionService.findSessionIdForToken(
+                user.getId(),
+                sessionCookieUtil.extractToken(request)
+        ).orElse(null);
+
+        if (sessionService.revokeSession(user.getId(), sessionId)) {
+            securityEventLogger.sessionsRevoked(user.getEmail(), 1, "single");
+        }
+        if (sessionId.equals(currentSessionId)) {
+            sessionCookieUtil.clearSessionCookie(response);
+        }
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/logout-all")
+    public ResponseEntity<Void> logoutAll(
+            Authentication authentication,
+            HttpServletResponse response) {
+        User user = (User) authentication.getPrincipal();
+        int revokedCount = sessionService.revokeAllSessions(user.getId());
+        sessionCookieUtil.clearSessionCookie(response);
+        securityEventLogger.sessionsRevoked(user.getEmail(), revokedCount, "all");
         return ResponseEntity.noContent().build();
     }
 
