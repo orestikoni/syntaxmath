@@ -70,7 +70,8 @@ public class SecurityConfig {
                                 "/api/auth/verification/request",
                                 "/api/auth/verification/confirm",
                                 "/api/auth/password-reset/request",
-                                "/api/auth/password-reset/confirm"
+                                "/api/auth/password-reset/confirm",
+                                "/api/auth/mfa/oauth/complete"
                         ).permitAll()
                         .requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
                         .anyRequest().authenticated()
