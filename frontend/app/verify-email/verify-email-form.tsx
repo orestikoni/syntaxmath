@@ -5,7 +5,7 @@ import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { authApi } from "@/lib/auth-api";
+import { authFetch } from "@/lib/auth-api";
 
 export function VerifyEmailForm({ token }: { token: string }) {
   const [status, setStatus] = useState<string | null>(null);
@@ -15,7 +15,7 @@ export function VerifyEmailForm({ token }: { token: string }) {
     setIsSubmitting(true);
     setStatus(null);
     try {
-      const response = await fetch(authApi("/verification/confirm"), {
+      const response = await authFetch("/verification/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),

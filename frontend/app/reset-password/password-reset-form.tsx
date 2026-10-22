@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { authApi } from "@/lib/auth-api";
+import { authFetch } from "@/lib/auth-api";
 
 export function PasswordResetForm({ token }: { token: string }) {
   const [email, setEmail] = useState("");
@@ -26,7 +26,7 @@ export function PasswordResetForm({ token }: { token: string }) {
     setIsSubmitting(true);
     setStatus(null);
     try {
-      const response = await fetch(authApi(token ? "/password-reset/confirm" : "/password-reset/request"), {
+      const response = await authFetch(token ? "/password-reset/confirm" : "/password-reset/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(

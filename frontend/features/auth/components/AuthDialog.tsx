@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Mail } from "lucide-react";
 
-import { authApi, AUTH_API_URL } from "@/lib/auth-api";
+import { authFetch, AUTH_API_URL } from "@/lib/auth-api";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -41,6 +41,8 @@ export function AuthDialog({
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaRequired, setMfaRequired] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -120,14 +122,16 @@ export function AuthDialog({
                 ? { email, password, firstName, lastName }
                 : forgot
                   ? { email }
-                  : { email, password };
-              const result = await fetch(authApi(path), {
+                  : { email, password, ...(mfaRequired ? { mfaCode } : {}) };
+              const result = await authFetch(path, {
                 method: "POST",
-                credentials: "include",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(body),
               });
-              const payload = (await result.json()) as { message?: string };
+              const payload = (await result.json()) as { message?: string; mfaRequired?: boolean };
+              if (payload.mfaRequired) {
+                setMfaRequired(true);
+              }
               if (!result.ok) {
                 setNotice(payload.message ?? "Unable to complete this request.");
                 setCanResendVerification(result.status === 403);
@@ -139,6 +143,8 @@ export function AuthDialog({
               } else if (forgot) {
                 setNotice(payload.message ?? "If the account is eligible, a reset email will be sent.");
               } else {
+                setMfaRequired(false);
+                setMfaCode("");
                 onOpenChange(false);
                 window.location.reload();
               }
@@ -215,6 +221,24 @@ export function AuthDialog({
             </div>
           )}
 
+          {mfaRequired && !signup && (
+            <div className="space-y-1.5">
+              <Label htmlFor="auth-mfa-code" className="text-xs text-muted-foreground">
+                Authenticator or recovery code
+              </Label>
+              <Input
+                id="auth-mfa-code"
+                type="text"
+                required
+                autoComplete="one-time-code"
+                inputMode="text"
+                maxLength={64}
+                value={mfaCode}
+                onChange={(event) => setMfaCode(event.target.value)}
+              />
+            </div>
+          )}
+
           {signup && (
             <div className="space-y-1.5">
               <Label htmlFor="auth-confirm-password" className="text-xs text-muted-foreground">
@@ -267,9 +291,8 @@ export function AuthDialog({
             onClick={async () => {
               setIsSubmitting(true);
               try {
-                const result = await fetch(authApi("/verification/request"), {
+                const result = await authFetch("/verification/request", {
                   method: "POST",
-                  credentials: "include",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ email }),
                 });
