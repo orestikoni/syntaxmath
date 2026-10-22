@@ -15,6 +15,7 @@ import com.syntaxmath.backend.auth.interfaces.UserRepository;
 import com.syntaxmath.backend.auth.service.AuthActionService;
 import com.syntaxmath.backend.auth.service.AuthSecurityEventLogger;
 import com.syntaxmath.backend.auth.service.LoginRateLimitService;
+import com.syntaxmath.backend.auth.service.OAuthMfaChallengeService;
 import com.syntaxmath.backend.auth.service.SessionService;
 import com.syntaxmath.backend.auth.service.TotpMfaService;
 import com.syntaxmath.backend.auth.util.SessionCookieUtil;
@@ -34,6 +35,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.util.List;
@@ -53,7 +55,9 @@ public class AuthController {
     private final LoginRateLimitService loginRateLimitService;
     private final AuthSecurityEventLogger securityEventLogger;
     private final TotpMfaService totpMfaService;
+    private final OAuthMfaChallengeService oAuthMfaChallengeService;
     private final SessionCookieUtil sessionCookieUtil;
+    private final String dummyPasswordHash;
 
     public AuthController(UserRepository userRepository,
                            AuthActionService authActionService,
@@ -62,6 +66,7 @@ public class AuthController {
                            LoginRateLimitService loginRateLimitService,
                            AuthSecurityEventLogger securityEventLogger,
                            TotpMfaService totpMfaService,
+                           OAuthMfaChallengeService oAuthMfaChallengeService,
                            SessionCookieUtil sessionCookieUtil) {
         this.userRepository = userRepository;
         this.authActionService = authActionService;
@@ -70,7 +75,9 @@ public class AuthController {
         this.loginRateLimitService = loginRateLimitService;
         this.securityEventLogger = securityEventLogger;
         this.totpMfaService = totpMfaService;
+        this.oAuthMfaChallengeService = oAuthMfaChallengeService;
         this.sessionCookieUtil = sessionCookieUtil;
+        this.dummyPasswordHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
     @PostMapping("/register")
@@ -152,9 +159,13 @@ public class AuthController {
 
         Optional<User> maybeUser = userRepository.findByEmail(email);
 
+        String passwordHash = maybeUser
+                .map(User::getPasswordHash)
+                .orElse(dummyPasswordHash);
+        boolean passwordMatches = passwordEncoder.matches(request.password(), passwordHash);
         boolean invalid = maybeUser.isEmpty()
                 || maybeUser.get().getPasswordHash() == null
-                || !passwordEncoder.matches(request.password(), maybeUser.get().getPasswordHash());
+                || !passwordMatches;
 
         if (invalid) {
             Duration lockout = loginRateLimitService.recordFailedLogin(email);
@@ -168,8 +179,8 @@ public class AuthController {
 
         User user = maybeUser.get();
         if (!user.isEmailVerified()) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of("message", "Verify your email before signing in."));
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("message", "Invalid email or password"));
         }
         if (user.isMfaEnabled()) {
             if (request.mfaCode() == null || request.mfaCode().isBlank()) {
@@ -192,8 +203,8 @@ public class AuthController {
         }
         loginRateLimitService.clearFailedLogins(email);
         String rawToken = sessionService.createSession(user.getId());
-        sessionCookieUtil.setSessionCookie(response, rawToken);
         securityEventLogger.successfulLogin(email, httpRequest.getRemoteAddr());
+        sessionCookieUtil.setSessionCookie(response, rawToken);
 
         return ResponseEntity.ok(toMeResponse(user));
     }
@@ -229,6 +240,53 @@ public class AuthController {
         User user = (User) authentication.getPrincipal();
         totpMfaService.disable(user, request.code());
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/mfa/oauth/complete")
+    public ResponseEntity<?> completeOAuthMfa(
+            @Valid @RequestBody MfaCodeRequest request,
+            HttpServletRequest httpRequest,
+            HttpServletResponse response) {
+        String challengeToken = sessionCookieUtil.extractOAuthMfaChallenge(httpRequest);
+        Duration retryAfter = loginRateLimitService.checkAndRecordAttempt(
+                httpRequest.getRemoteAddr(),
+                challengeToken == null ? "missing-oauth-challenge" : challengeToken
+        );
+        if (!retryAfter.isZero()) {
+            return tooManyAttempts(retryAfter);
+        }
+        Optional<User> challengeUser = oAuthMfaChallengeService.findChallengeUser(challengeToken);
+        if (challengeUser.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("message", "Invalid or expired sign-in challenge"));
+        }
+
+        User user = challengeUser.get();
+        Duration lockout = loginRateLimitService.getAccountLockout(user.getEmail());
+        if (!lockout.isZero()) {
+            return tooManyAttempts(lockout);
+        }
+        try {
+            User authenticatedUser = oAuthMfaChallengeService.completeChallenge(challengeToken, request.code());
+            loginRateLimitService.clearFailedLogins(authenticatedUser.getEmail());
+            String rawToken = sessionService.createSession(authenticatedUser.getId());
+            securityEventLogger.successfulLogin(authenticatedUser.getEmail(), httpRequest.getRemoteAddr());
+            sessionCookieUtil.setSessionCookie(response, rawToken);
+            sessionCookieUtil.clearOAuthMfaChallengeCookie(response);
+            return ResponseEntity.ok(toMeResponse(authenticatedUser));
+        } catch (ResponseStatusException exception) {
+            if (exception.getStatusCode().value() != HttpStatus.UNAUTHORIZED.value()) {
+                throw exception;
+            }
+            Duration failedLoginLockout = loginRateLimitService.recordFailedLogin(user.getEmail());
+            securityEventLogger.failedLogin(user.getEmail(), httpRequest.getRemoteAddr());
+            if (!failedLoginLockout.isZero()) {
+                securityEventLogger.accountLocked(user.getEmail(), httpRequest.getRemoteAddr());
+                return tooManyAttempts(failedLoginLockout);
+            }
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("message", "Invalid or expired sign-in challenge"));
+        }
     }
 
     @PostMapping("/logout")

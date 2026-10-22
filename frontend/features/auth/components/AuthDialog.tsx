@@ -134,7 +134,7 @@ export function AuthDialog({
               }
               if (!result.ok) {
                 setNotice(payload.message ?? "Unable to complete this request.");
-                setCanResendVerification(result.status === 403);
+                setCanResendVerification(result.status === 401 && !mfaRequired && !signup && !forgot);
                 return;
               }
               if (signup) {

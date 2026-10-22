@@ -32,6 +32,7 @@ public class AuthActionService {
     private final UserRepository userRepository;
     private final SessionService sessionService;
     private final PasswordEncoder passwordEncoder;
+    private final CompromisedPasswordService compromisedPasswordService;
     private final ResendEmailService emailService;
     private final AuthSecurityEventLogger securityEventLogger;
     private final SecureRandom secureRandom = new SecureRandom();
@@ -41,6 +42,7 @@ public class AuthActionService {
                              UserRepository userRepository,
                              SessionService sessionService,
                              PasswordEncoder passwordEncoder,
+                             CompromisedPasswordService compromisedPasswordService,
                              ResendEmailService emailService,
                              AuthSecurityEventLogger securityEventLogger) {
         this.authProperties = authProperties;
@@ -48,12 +50,14 @@ public class AuthActionService {
         this.userRepository = userRepository;
         this.sessionService = sessionService;
         this.passwordEncoder = passwordEncoder;
+        this.compromisedPasswordService = compromisedPasswordService;
         this.emailService = emailService;
         this.securityEventLogger = securityEventLogger;
     }
 
     @Transactional
     public void register(String email, String password, String firstName, String lastName) {
+        rejectCompromisedPassword(password);
         String normalizedEmail = normalize(email);
         if (userRepository.findByEmail(normalizedEmail).isPresent()) {
             return;
@@ -65,6 +69,7 @@ public class AuthActionService {
                 firstName,
                 lastName
         ));
+        securityEventLogger.registrationCompleted(user.getEmail());
         issueToken(user, AuthActionType.EMAIL_VERIFICATION);
     }
 
@@ -101,6 +106,7 @@ public class AuthActionService {
         AuthActionToken token = findActiveToken(rawToken, AuthActionType.PASSWORD_RESET, now);
         User user = userRepository.findById(token.getUserId())
                 .orElseThrow(() -> new ResponseStatusException(BAD_REQUEST, "Invalid or expired token"));
+        rejectCompromisedPassword(newPassword);
 
         token.consume(now);
         user.changePassword(passwordEncoder.encode(newPassword));
@@ -156,6 +162,15 @@ public class AuthActionService {
 
     private String normalize(String email) {
         return email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private void rejectCompromisedPassword(String password) {
+        if (compromisedPasswordService.isCompromised(password)) {
+            throw new ResponseStatusException(
+                    BAD_REQUEST,
+                    "Choose a password that has not appeared in known data breaches"
+            );
+        }
     }
 
     private String hash(String rawToken) {

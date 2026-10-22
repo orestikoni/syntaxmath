@@ -1,6 +1,7 @@
 # Backend authentication configuration
 
 Password-based registration requires email verification. Password-reset and verification links are sent through Resend.
+New and reset passwords are checked against Have I Been Pwned's Pwned Passwords range API. Only the first five characters of the SHA-1 hash are sent (k-anonymity); the password itself is not transmitted. Password creation/reset fails with a temporary service error if this check is unavailable.
 
 Configure these values for the backend:
 
@@ -20,7 +21,11 @@ Cookie-authenticated browser requests use CSRF protection. Before sending an uns
 
 ## Optional TOTP multi-factor authentication
 
-Signed-in users can manage TOTP at `/account/security`. Enrollment requires scanning/entering the displayed setup key and confirming a current six-digit code. Enabling MFA returns ten single-use recovery codes; save them because they are displayed only once. Password-based login then requires either an authenticator code or an unused recovery code. Google OAuth sign-in is not yet gated by this app's TOTP factor and continues to rely on Google's account security.
+Signed-in users can manage TOTP at `/account/security`. Enrollment requires scanning/entering the displayed setup key and confirming a current six-digit code. Enabling MFA returns ten single-use recovery codes; save them because they are displayed only once. Password-based login and Google OAuth sign-in then require either an authenticator code or an unused recovery code before a full session is issued. The Google OAuth second step uses a short-lived, HttpOnly challenge cookie; the challenge expires after five minutes and is single-use.
+
+Google identities are persisted by Google's stable subject identifier, with unique constraints preventing one Google identity from being attached to multiple accounts or multiple Google identities from being attached to one account. A verified Google email continues to link to an existing SyntaxMath account with the same normalized email, preserving the current sign-in behavior.
+
+Authentication and security events are persisted in PostgreSQL for 365 days and then removed by the daily cleanup job. The audit table stores a SHA-256 account identifier hash, event type, and non-sensitive event details; it does not store client IP addresses. Existing application log messages still include client IP on login events, so configure the deployment's log collection and retention policy accordingly. A security-sensitive action fails if its persistent audit write fails.
 
 Set `MFA_ENCRYPTION_KEY` to a Base64-encoded random 32-byte key in local/deployment secrets before enabling MFA. The app encrypts TOTP secrets with AES-GCM; changing or losing this key makes enrolled authenticators unusable. Keep a protected backup and use the same key across backend instances. Recovery-code hashes are stored instead of their plaintext values.
 
