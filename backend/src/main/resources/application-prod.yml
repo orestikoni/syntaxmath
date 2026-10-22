@@ -18,3 +18,4 @@ spring:
 syntaxmath:
   auth:
     cookie-secure: true
+    mfa-encryption-key: ${MFA_ENCRYPTION_KEY}

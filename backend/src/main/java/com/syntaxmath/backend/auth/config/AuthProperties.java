@@ -20,6 +20,7 @@ public class AuthProperties {
     private Duration loginFailureLockoutDuration = Duration.ofMinutes(15);
     private Duration emailVerificationLifetime = Duration.ofHours(24);
     private Duration passwordResetLifetime = Duration.ofMinutes(30);
+    private String mfaEncryptionKey;
 
     public String getCookieName() {
         return cookieName;
@@ -107,5 +108,13 @@ public class AuthProperties {
 
     public void setPasswordResetLifetime(Duration passwordResetLifetime) {
         this.passwordResetLifetime = passwordResetLifetime;
+    }
+
+    public String getMfaEncryptionKey() {
+        return mfaEncryptionKey;
+    }
+
+    public void setMfaEncryptionKey(String mfaEncryptionKey) {
+        this.mfaEncryptionKey = mfaEncryptionKey;
     }
 }

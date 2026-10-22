@@ -17,6 +17,7 @@ syntaxmath:
     login-failure-lockout-duration: 15m
     email-verification-lifetime: 24h
     password-reset-lifetime: 30m
+    mfa-encryption-key: ${MFA_ENCRYPTION_KEY:}
   email:
     resend:
       api-key: ${RESEND_API_KEY:}
