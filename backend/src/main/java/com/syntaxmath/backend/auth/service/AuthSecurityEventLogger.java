@@ -40,6 +40,18 @@ public class AuthSecurityEventLogger {
                 accountIdentifier(email), count, scope);
     }
 
+    public void mfaEnabled(String email) {
+        LOGGER.info("auth.mfa.enabled account={}", accountIdentifier(email));
+    }
+
+    public void mfaDisabled(String email) {
+        LOGGER.warn("auth.mfa.disabled account={}", accountIdentifier(email));
+    }
+
+    public void recoveryCodeUsed(String email) {
+        LOGGER.warn("auth.mfa.recovery_code_used account={}", accountIdentifier(email));
+    }
+
     private String accountIdentifier(String email) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(

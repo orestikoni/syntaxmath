@@ -4,6 +4,9 @@ import com.syntaxmath.backend.auth.entity.User;
 import com.syntaxmath.backend.auth.dto.EmailRequest;
 import com.syntaxmath.backend.auth.dto.LoginRequest;
 import com.syntaxmath.backend.auth.dto.MeResponse;
+import com.syntaxmath.backend.auth.dto.MfaCodeRequest;
+import com.syntaxmath.backend.auth.dto.MfaEnrollmentResponse;
+import com.syntaxmath.backend.auth.dto.MfaRecoveryCodesResponse;
 import com.syntaxmath.backend.auth.dto.PasswordResetRequest;
 import com.syntaxmath.backend.auth.dto.RegisterRequest;
 import com.syntaxmath.backend.auth.dto.SessionResponse;
@@ -13,6 +16,7 @@ import com.syntaxmath.backend.auth.service.AuthActionService;
 import com.syntaxmath.backend.auth.service.AuthSecurityEventLogger;
 import com.syntaxmath.backend.auth.service.LoginRateLimitService;
 import com.syntaxmath.backend.auth.service.SessionService;
+import com.syntaxmath.backend.auth.service.TotpMfaService;
 import com.syntaxmath.backend.auth.util.SessionCookieUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -20,6 +24,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.CacheControl;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -47,6 +52,7 @@ public class AuthController {
     private final SessionService sessionService;
     private final LoginRateLimitService loginRateLimitService;
     private final AuthSecurityEventLogger securityEventLogger;
+    private final TotpMfaService totpMfaService;
     private final SessionCookieUtil sessionCookieUtil;
 
     public AuthController(UserRepository userRepository,
@@ -55,6 +61,7 @@ public class AuthController {
                            SessionService sessionService,
                            LoginRateLimitService loginRateLimitService,
                            AuthSecurityEventLogger securityEventLogger,
+                           TotpMfaService totpMfaService,
                            SessionCookieUtil sessionCookieUtil) {
         this.userRepository = userRepository;
         this.authActionService = authActionService;
@@ -62,6 +69,7 @@ public class AuthController {
         this.sessionService = sessionService;
         this.loginRateLimitService = loginRateLimitService;
         this.securityEventLogger = securityEventLogger;
+        this.totpMfaService = totpMfaService;
         this.sessionCookieUtil = sessionCookieUtil;
     }
 
@@ -163,12 +171,64 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("message", "Verify your email before signing in."));
         }
+        if (user.isMfaEnabled()) {
+            if (request.mfaCode() == null || request.mfaCode().isBlank()) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(Map.<String, Object>of(
+                                "message", "Enter your authenticator or recovery code.",
+                                "mfaRequired", true
+                        ));
+            }
+            if (!totpMfaService.verifyLoginCode(user, request.mfaCode())) {
+                Duration lockout = loginRateLimitService.recordFailedLogin(email);
+                securityEventLogger.failedLogin(email, httpRequest.getRemoteAddr());
+                if (!lockout.isZero()) {
+                    securityEventLogger.accountLocked(email, httpRequest.getRemoteAddr());
+                    return tooManyAttempts(lockout);
+                }
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(Map.of("message", "Invalid email, password, or authenticator code."));
+            }
+        }
         loginRateLimitService.clearFailedLogins(email);
         String rawToken = sessionService.createSession(user.getId());
         sessionCookieUtil.setSessionCookie(response, rawToken);
         securityEventLogger.successfulLogin(email, httpRequest.getRemoteAddr());
 
         return ResponseEntity.ok(toMeResponse(user));
+    }
+
+    @GetMapping("/mfa/status")
+    public ResponseEntity<Map<String, Boolean>> mfaStatus(Authentication authentication) {
+        User user = (User) authentication.getPrincipal();
+        return ResponseEntity.ok(Map.of("enabled", user.isMfaEnabled()));
+    }
+
+    @PostMapping("/mfa/enroll")
+    public ResponseEntity<MfaEnrollmentResponse> beginMfaEnrollment(Authentication authentication) {
+        User user = (User) authentication.getPrincipal();
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(totpMfaService.beginEnrollment(user));
+    }
+
+    @PostMapping("/mfa/enable")
+    public ResponseEntity<MfaRecoveryCodesResponse> enableMfa(
+            @Valid @RequestBody MfaCodeRequest request,
+            Authentication authentication) {
+        User user = (User) authentication.getPrincipal();
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(totpMfaService.enable(user, request.code()));
+    }
+
+    @PostMapping("/mfa/disable")
+    public ResponseEntity<Void> disableMfa(
+            @Valid @RequestBody MfaCodeRequest request,
+            Authentication authentication) {
+        User user = (User) authentication.getPrincipal();
+        totpMfaService.disable(user, request.code());
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/logout")
