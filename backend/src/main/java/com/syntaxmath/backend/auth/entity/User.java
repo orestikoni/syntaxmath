@@ -34,6 +34,15 @@ public class User {
     @Column(name = "email_verified", nullable = false)
     private boolean emailVerified;
 
+    @Column(name = "totp_secret_encrypted")
+    private String totpSecretEncrypted;
+
+    @Column(name = "mfa_enabled", nullable = false)
+    private boolean mfaEnabled;
+
+    @Column(name = "totp_last_used_step")
+    private Long totpLastUsedStep;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private OffsetDateTime createdAt;
 
@@ -78,6 +87,40 @@ public class User {
 
     public void changePassword(String passwordHash) {
         this.passwordHash = passwordHash;
+    }
+
+    public String getTotpSecretEncrypted() {
+        return totpSecretEncrypted;
+    }
+
+    public boolean isMfaEnabled() {
+        return mfaEnabled;
+    }
+
+    public void setPendingTotpSecret(String encryptedSecret) {
+        this.totpSecretEncrypted = encryptedSecret;
+        this.mfaEnabled = false;
+    }
+
+    public void enableMfa() {
+        if (totpSecretEncrypted == null || totpSecretEncrypted.isBlank()) {
+            throw new IllegalStateException("A TOTP secret must be enrolled before enabling MFA");
+        }
+        this.mfaEnabled = true;
+    }
+
+    public Long getTotpLastUsedStep() {
+        return totpLastUsedStep;
+    }
+
+    public void markTotpStepUsed(long step) {
+        this.totpLastUsedStep = step;
+    }
+
+    public void disableMfa() {
+        this.mfaEnabled = false;
+        this.totpSecretEncrypted = null;
+        this.totpLastUsedStep = null;
     }
 
     public OffsetDateTime getCreatedAt() {
