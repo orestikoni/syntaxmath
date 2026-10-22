@@ -179,6 +179,12 @@ public class AuthController {
 
         User user = maybeUser.get();
         if (!user.isEmailVerified()) {
+            Duration lockout = loginRateLimitService.recordFailedLogin(email);
+            securityEventLogger.failedLogin(email, httpRequest.getRemoteAddr());
+            if (!lockout.isZero()) {
+                securityEventLogger.accountLocked(email, httpRequest.getRemoteAddr());
+                return tooManyAttempts(lockout);
+            }
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("message", "Invalid email or password"));
         }

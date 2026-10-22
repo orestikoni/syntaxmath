@@ -4,7 +4,6 @@ import com.syntaxmath.backend.auth.filter.OriginCheckFilter;
 import com.syntaxmath.backend.auth.filter.SessionAuthenticationFilter;
 import com.syntaxmath.backend.oauth.service.GoogleOAuth2UserService;
 import com.syntaxmath.backend.oauth.service.OAuth2LoginSuccessHandler;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,19 +16,14 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
-import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
-import org.springframework.security.web.csrf.CsrfTokenRequestHandler;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
-import org.springframework.security.web.csrf.XorCsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
-import org.springframework.util.StringUtils;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
-import java.util.function.Supplier;
 
 @Configuration
 @EnableWebSecurity
@@ -56,7 +50,7 @@ public class SecurityConfig {
         http
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfTokenRepository)
-                        .csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler())
+                        .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
                 )
                 .cors(Customizer.withDefaults())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -64,7 +58,6 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
                         .requestMatchers(
-                                HttpMethod.POST,
                                 "/api/auth/register",
                                 "/api/auth/login",
                                 "/api/auth/verification/request",
@@ -132,24 +125,4 @@ public class SecurityConfig {
         return repository;
     }
 
-    private static final class SpaCsrfTokenRequestHandler implements CsrfTokenRequestHandler {
-
-        private final CsrfTokenRequestHandler xorHandler = new XorCsrfTokenRequestAttributeHandler();
-        private final CsrfTokenRequestHandler plainHandler = new CsrfTokenRequestAttributeHandler();
-
-        @Override
-        public void handle(HttpServletRequest request,
-                           HttpServletResponse response,
-                           Supplier<CsrfToken> csrfToken) {
-            xorHandler.handle(request, response, csrfToken);
-        }
-
-        @Override
-        public String resolveCsrfTokenValue(HttpServletRequest request, CsrfToken csrfToken) {
-            String headerValue = request.getHeader(csrfToken.getHeaderName());
-            return StringUtils.hasText(headerValue)
-                    ? plainHandler.resolveCsrfTokenValue(request, csrfToken)
-                    : xorHandler.resolveCsrfTokenValue(request, csrfToken);
-        }
-    }
 }
