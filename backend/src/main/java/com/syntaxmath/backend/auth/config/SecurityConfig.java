@@ -4,6 +4,7 @@ import com.syntaxmath.backend.auth.filter.OriginCheckFilter;
 import com.syntaxmath.backend.auth.filter.SessionAuthenticationFilter;
 import com.syntaxmath.backend.oauth.service.GoogleOAuth2UserService;
 import com.syntaxmath.backend.oauth.service.OAuth2LoginSuccessHandler;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -12,16 +13,23 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRequestHandler;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.csrf.XorCsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.util.StringUtils;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 @Configuration
 @EnableWebSecurity
@@ -43,13 +51,18 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http,
+                                           CsrfTokenRepository csrfTokenRepository) throws Exception {
         http
-                .csrf(AbstractHttpConfigurer::disable)
+                .csrf(csrf -> csrf
+                        .csrfTokenRepository(csrfTokenRepository)
+                        .csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler())
+                )
                 .cors(Customizer.withDefaults())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
                         .requestMatchers(
                                 HttpMethod.POST,
                                 "/api/auth/register",
@@ -95,12 +108,47 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(List.of(allowedOrigin));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of(HttpHeaders.CONTENT_TYPE, HttpHeaders.ACCEPT));
+        configuration.setAllowedHeaders(List.of(
+                HttpHeaders.CONTENT_TYPE,
+                HttpHeaders.ACCEPT,
+                "X-XSRF-TOKEN"
+        ));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
+    }
+
+    @Bean
+    public CsrfTokenRepository csrfTokenRepository(AuthProperties authProperties) {
+        CookieCsrfTokenRepository repository = CookieCsrfTokenRepository.withHttpOnlyFalse();
+        repository.setCookieCustomizer(cookie -> cookie
+                .path("/")
+                .sameSite("Lax")
+                .secure(authProperties.isCookieSecure()));
+        return repository;
+    }
+
+    private static final class SpaCsrfTokenRequestHandler implements CsrfTokenRequestHandler {
+
+        private final CsrfTokenRequestHandler xorHandler = new XorCsrfTokenRequestAttributeHandler();
+        private final CsrfTokenRequestHandler plainHandler = new CsrfTokenRequestAttributeHandler();
+
+        @Override
+        public void handle(HttpServletRequest request,
+                           HttpServletResponse response,
+                           Supplier<CsrfToken> csrfToken) {
+            xorHandler.handle(request, response, csrfToken);
+        }
+
+        @Override
+        public String resolveCsrfTokenValue(HttpServletRequest request, CsrfToken csrfToken) {
+            String headerValue = request.getHeader(csrfToken.getHeaderName());
+            return StringUtils.hasText(headerValue)
+                    ? plainHandler.resolveCsrfTokenValue(request, csrfToken)
+                    : xorHandler.resolveCsrfTokenValue(request, csrfToken);
+        }
     }
 }
