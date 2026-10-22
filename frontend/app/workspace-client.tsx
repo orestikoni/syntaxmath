@@ -2,6 +2,7 @@
 
 import { FileText, Menu, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 
 import { AuthDialog } from "@/features/auth/components/AuthDialog";
 import { ProblemInputCard } from "@/features/problem-solver/components/ProblemInputCard";
@@ -180,6 +181,9 @@ export function Workspace() {
             </h1>
             <Button size="sm" className="ml-auto" onClick={() => setAuthOpen(true)}>
               Sign in
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link href="/account/security">Account security</Link>
             </Button>
           </div>
 
